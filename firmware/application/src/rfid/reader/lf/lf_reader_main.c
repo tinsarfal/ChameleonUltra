@@ -27,6 +27,17 @@ uint8_t PcdScanEM410X(uint8_t *uid) {
 }
 
 /**
+* Search HID Prox tag
+*/
+uint8_t PcdScanHIDProx(hid_prox_card_data_t *card_data) {
+    uint8_t ret = STATUS_EM410X_TAG_NO_FOUND;
+    if (hidprox_read(card_data, g_timeout_readem_ms) == 1) {
+        ret = STATUS_LF_TAG_OK;
+    }
+    return ret;
+}
+
+/**
 * Check whether there is a specified UID tag on the current field
 */
 uint8_t check_write_ok(uint8_t *uid, uint8_t *newuid, uint8_t on_uid_diff_return) {

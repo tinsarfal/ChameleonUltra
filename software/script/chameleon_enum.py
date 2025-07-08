@@ -73,6 +73,7 @@ class Command(enum.IntEnum):
 
     EM410X_SCAN = 3000
     EM410X_WRITE_TO_T55XX = 3001
+    HIDPROX_SCAN = 3002
 
     MF1_WRITE_EMU_BLOCK_DATA = 4000
     HF14A_SET_ANTI_COLL_DATA = 4001
@@ -113,6 +114,8 @@ class Command(enum.IntEnum):
 
     EM410X_SET_EMU_ID = 5000
     EM410X_GET_EMU_ID = 5001
+    HIDPROX_SET_EMU_ID = 5002
+    HIDPROX_GET_EMU_ID = 5003
 
 
 @enum.unique
@@ -250,6 +253,7 @@ class TagSpecificType(enum.IntEnum):
 
     # FSK Tag-Talk-First      200
     # HID Prox
+    HID_PROX = 200
     # ioProx
     # AWID
     # Paradox
@@ -313,6 +317,8 @@ class TagSpecificType(enum.IntEnum):
             return "Undefined"
         elif self == TagSpecificType.EM410X:
             return "EM410X"
+        elif self == TagSpecificType.HID_PROX:
+            return "HID Prox"
         elif self == TagSpecificType.MIFARE_Mini:
             return "Mifare Mini"
         elif self == TagSpecificType.MIFARE_1024:

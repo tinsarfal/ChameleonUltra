@@ -16,6 +16,11 @@
 #include "delayed_reset.h"
 #include "netdata.h"
 
+#if defined(PROJECT_CHAMELEON_ULTRA)
+#include "rfid/reader/lf/lf_hidprox_data.h"
+#include "rfid/nfctag/lf/lf_tag_hidprox.h"
+#endif
+
 
 #define NRF_LOG_MODULE_NAME app_cmd
 #include "nrf_log.h"
@@ -697,6 +702,27 @@ static data_frame_tx_t *cmd_processor_get_slot_info(uint16_t cmd, uint16_t statu
     return data_frame_make(cmd, STATUS_SUCCESS, sizeof(payload), (uint8_t *)&payload);
 }
 
+#if defined(PROJECT_CHAMELEON_ULTRA)
+static data_frame_tx_t *cmd_processor_hidprox_scan(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    hid_prox_card_data_t card_data = {0};
+    status = PcdScanHIDProx(&card_data);
+    if (status != STATUS_LF_TAG_OK) {
+        return data_frame_make(cmd, status, 0, NULL);
+    }
+    
+    // Return facility code and card number
+    struct {
+        uint8_t facility_code;
+        uint16_t card_number;
+    } PACKED response;
+    
+    response.facility_code = card_data.facility_code;
+    response.card_number = U16HTONS(card_data.card_number);
+    
+    return data_frame_make(cmd, STATUS_LF_TAG_OK, sizeof(response), (uint8_t*)&response);
+}
+#endif
+
 static data_frame_tx_t *cmd_processor_wipe_fds(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
     bool success = fds_wipe();
     status = success ? STATUS_SUCCESS : STATUS_FLASH_WRITE_FAIL;
@@ -725,6 +751,32 @@ static data_frame_tx_t *cmd_processor_em410x_get_emu_id(uint16_t cmd, uint16_t s
     memcpy(responseData, buffer->buffer, LF_EM410X_TAG_ID_SIZE);
     return data_frame_make(cmd, STATUS_SUCCESS, LF_EM410X_TAG_ID_SIZE, responseData);
 }
+
+#if defined(PROJECT_CHAMELEON_ULTRA)
+static data_frame_tx_t *cmd_processor_hidprox_set_emu_id(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    if (length != LF_HIDPROX_TAG_ID_SIZE) {
+        return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    }
+    
+    tag_data_buffer_t *buffer = get_buffer_by_tag_type(TAG_TYPE_HID_PROX);
+    memcpy(buffer->buffer, data, LF_HIDPROX_TAG_ID_SIZE);
+    tag_emulation_load_by_buffer(TAG_TYPE_HID_PROX, false);
+    return data_frame_make(cmd, STATUS_SUCCESS, 0, NULL);
+}
+
+static data_frame_tx_t *cmd_processor_hidprox_get_emu_id(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    tag_slot_specific_type_t tag_types;
+    tag_emulation_get_specific_types_by_slot(tag_emulation_get_slot(), &tag_types);
+    if (tag_types.tag_lf != TAG_TYPE_HID_PROX) {
+        return data_frame_make(cmd, STATUS_PAR_ERR, 0, data); // no data in slot, don't send garbage
+    }
+    
+    tag_data_buffer_t *buffer = get_buffer_by_tag_type(TAG_TYPE_HID_PROX);
+    uint8_t responseData[LF_HIDPROX_TAG_ID_SIZE];
+    memcpy(responseData, buffer->buffer, LF_HIDPROX_TAG_ID_SIZE);
+    return data_frame_make(cmd, STATUS_SUCCESS, LF_HIDPROX_TAG_ID_SIZE, responseData);
+}
+#endif
 
 static nfc_tag_14a_coll_res_reference_t *get_coll_res_data(bool write) {
     nfc_tag_14a_coll_res_reference_t *info;
@@ -1348,6 +1400,7 @@ static cmd_data_map_t m_data_cmd_map[] = {
 
     {    DATA_CMD_EM410X_SCAN,                  before_reader_run,           cmd_processor_em410x_scan,                   NULL                   },
     {    DATA_CMD_EM410X_WRITE_TO_T55XX,        before_reader_run,           cmd_processor_em410x_write_to_t55XX,         NULL                   },
+    {    DATA_CMD_HIDPROX_SCAN,                 before_reader_run,           cmd_processor_hidprox_scan,                  NULL                   },
 
 #endif
 
@@ -1385,6 +1438,10 @@ static cmd_data_map_t m_data_cmd_map[] = {
     {    DATA_CMD_MF0_NTAG_SET_WRITE_MODE,      NULL,                        cmd_processor_mf0_ntag_set_write_mode,       NULL                   },
     {    DATA_CMD_EM410X_SET_EMU_ID,            NULL,                        cmd_processor_em410x_set_emu_id,             NULL                   },
     {    DATA_CMD_EM410X_GET_EMU_ID,            NULL,                        cmd_processor_em410x_get_emu_id,             NULL                   },
+#if defined(PROJECT_CHAMELEON_ULTRA)
+    {    DATA_CMD_HIDPROX_SET_EMU_ID,           NULL,                        cmd_processor_hidprox_set_emu_id,            NULL                   },
+    {    DATA_CMD_HIDPROX_GET_EMU_ID,           NULL,                        cmd_processor_hidprox_get_emu_id,            NULL                   },
+#endif
 };
 
 data_frame_tx_t *cmd_processor_get_device_capabilities(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
