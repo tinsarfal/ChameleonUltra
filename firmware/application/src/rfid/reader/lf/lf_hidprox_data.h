@@ -20,7 +20,8 @@ extern "C"
 
 typedef struct {
     uint8_t facility_code;          // Facility code (8 bits)
-    uint32_t card_number;           // Card number (16 bits, stored in 32-bit for convenience)
+    uint16_t card_number;           // Card number (16 bits)
+    uint8_t padding;                // Padding to make structure 4 bytes total
 } hid_prox_card_data_t;
 
 typedef struct {
