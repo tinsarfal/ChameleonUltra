@@ -49,6 +49,7 @@ typedef enum {
 
     //////// FSK Tag-Talk-First   200
     // HID Prox
+    TAG_TYPE_HID_PROX = 200,
     // ioProx
     // AWID
     // Paradox
@@ -103,7 +104,8 @@ typedef enum {
     {OLD_TAG_TYPE_NTAG_216, TAG_TYPE_NTAG_216}
 
 #define TAG_SPECIFIC_TYPE_LF_VALUES \
-    TAG_TYPE_EM410X
+    TAG_TYPE_EM410X, \
+    TAG_TYPE_HID_PROX
 
 #define TAG_SPECIFIC_TYPE_HF_VALUES \
     TAG_TYPE_MIFARE_Mini,\
