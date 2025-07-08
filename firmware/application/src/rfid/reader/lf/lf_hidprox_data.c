@@ -12,6 +12,78 @@ NRF_LOG_MODULE_REGISTER();
 
 static hid_prox_raw_data_t hidprox_raw_data;
 static volatile uint8_t data_index = 0;
+static uint8_t hidprox_card_buffer[HID_PROX_TOTAL_SIZE];
+static volatile bool hidprox_card_found = false;
+
+/**
+ * Process HID Prox FSK signal and decode 26-bit data
+ */
+uint8_t hidprox_acquire(void) {
+    if (data_index >= HID_PROX_RAW_BITS) {
+        // Look for HID Prox FSK pattern
+        // HID Prox uses different timing than EM410x - typically longer periods for FSK
+        uint32_t bit_data = 0;
+        uint8_t valid_bits = 0;
+        
+        // Decode FSK timing data into bits
+        for (int i = 0; i < data_index && valid_bits < 26; i++) {
+            uint8_t timing_value = hidprox_raw_data.timing_data[i];
+            
+            // HID Prox FSK timing analysis
+            // Adjust these thresholds based on actual HID Prox timing characteristics
+            if (timing_value >= 32 && timing_value <= 48) {
+                // Short period = 0 bit
+                bit_data <<= 1;
+                valid_bits++;
+            } else if (timing_value >= 64 && timing_value <= 80) {
+                // Long period = 1 bit  
+                bit_data = (bit_data << 1) | 1;
+                valid_bits++;
+            }
+            // Invalid timing values are ignored
+        }
+        
+        // We need exactly 26 bits for HID Prox
+        if (valid_bits == 26) {
+            // Store the decoded data
+            hidprox_card_buffer[0] = (bit_data >> 24) & 0xFF;
+            hidprox_card_buffer[1] = (bit_data >> 16) & 0xFF;
+            hidprox_card_buffer[2] = (bit_data >> 8) & 0xFF;
+            hidprox_card_buffer[3] = (bit_data >> 0) & 0xFF;
+            
+            hidprox_card_found = true;
+            data_index = 0;
+            return 1;
+        }
+        
+        // Reset for next attempt
+        data_index = 0;
+    }
+    return 0;
+}
+
+/**
+ * HID Prox GPIO interrupt callback for FSK signal processing
+ */
+void GPIO_hidprox_callback(void) {
+    static uint32_t this_time_len = 0;
+    this_time_len = get_lf_counter_value();
+    
+    if (this_time_len > 20) { // Filter out noise
+        if (data_index < HID_PROX_RAW_BITS) {
+            // Store timing information for FSK analysis
+            hidprox_raw_data.timing_data[data_index] = (uint8_t)(this_time_len & 0xFF);
+            data_index++;
+        }
+        clear_lf_counter_value();
+    }
+    
+    // Small delay for hardware stability
+    uint16_t counter = 0;
+    do {
+        __NOP();
+    } while (counter++ > 500);
+}
 
 /**
  * Initialize HID Prox hardware
@@ -19,6 +91,8 @@ static volatile uint8_t data_index = 0;
 void init_hidprox_hw(void) {
     // Initialize the LF radio for 125kHz operations
     lf_125khz_radio_init();
+    // Register HID Prox-specific GPIO callback for FSK processing
+    register_rio_callback(GPIO_hidprox_callback);
     NRF_LOG_INFO("HID Prox hardware initialized");
 }
 
@@ -125,40 +199,32 @@ uint8_t hidprox_read(hid_prox_card_data_t *card_data, uint32_t timeout_ms) {
     
     // Initialize raw data structure
     memset(&hidprox_raw_data, 0, sizeof(hidprox_raw_data));
+    hidprox_card_found = false;
+    data_index = 0;
     
     NRF_LOG_INFO("Starting HID Prox read, timeout: %d ms", timeout_ms);
     
-    init_hidprox_hw();          // Initialize HID Prox hardware
+    init_hidprox_hw();          // Initialize HID Prox hardware with FSK callback
     start_lf_125khz_radio();    // Start 125kHz carrier
     
     // Reading the card during timeout
     autotimer *p_at = bsp_obtain_timer(0);
     while (NO_TIMEOUT_1MS(p_at, timeout_ms)) {
-        // In a real implementation, this would:
-        // 1. Look for FSK modulation indicating HID Prox response
-        // 2. Demodulate and decode the HID Prox data
-        // 3. Validate parity and format
-        
-        // For now, simulate successful read for testing after half timeout
-        static uint32_t sim_counter = 0;
-        sim_counter++;
-        
-        if (sim_counter > (timeout_ms / 20)) {  // Simulate detection after some time
-            // Simulate a detected card with test values
-            card_data->facility_code = 123;  // Example facility code
-            card_data->card_number = 45678;  // Example card number
-            result = 1;
-            break;
+        // Process captured FSK signal data
+        if (hidprox_acquire()) {
+            // Successfully decoded HID Prox data
+            result = hidprox_decode(hidprox_card_buffer, HID_PROX_TOTAL_SIZE, card_data);
+            if (result) {
+                break;
+            }
         }
         
-        bsp_delay_ms(10);  // Small delay between attempts
+        bsp_delay_ms(10);  // Small delay between processing attempts
     }
     
-    if (result != 1) {  // If the card is not found, stop the radio
-        stop_lf_125khz_radio();
-    } else {
-        stop_lf_125khz_radio();
-    }
+    // Clean up
+    stop_lf_125khz_radio();
+    unregister_rio_callback();  // Unregister the callback to avoid interference
     
     bsp_return_timer(p_at);
     p_at = NULL;

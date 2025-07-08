@@ -433,6 +433,7 @@ hf_mfu = hf.subgroup('mfu', 'MIFARE Ultralight / NTAG commands')
 lf = root.subgroup('lf', 'Low Frequency commands')
 lf_em = lf.subgroup('em', 'EM commands')
 lf_em_410x = lf_em.subgroup('410x', 'EM410x commands')
+lf_hidprox = lf.subgroup('hidprox', 'HID Prox commands')
 
 
 @root.command('clear')
@@ -3163,6 +3164,54 @@ class LFEM410xEconfig(SlotIndexArgsAndGoUnit, LFEMIdArgsUnit):
             response = self.cmd.em410x_get_emu_id()
             print(' - Get em410x tag id success.')
             print(f'ID: {response.hex()}')
+
+
+# HID Prox command argument mixins
+class LFHIDProxArgsUnit:
+    def add_hidprox_args(self, parser: ArgumentParserNoExit, facility_required=False, card_required=False):
+        parser.add_argument('-f', '--facility', type=int, required=facility_required, 
+                          help="Facility code (0-255)", metavar="0-255")
+        parser.add_argument('-c', '--card', type=int, required=card_required,
+                          help="Card number (0-65535)", metavar="0-65535")
+        return parser
+
+
+@lf_hidprox.command('read')
+class LFHIDProxRead(ReaderRequiredUnit):
+    def args_parser(self) -> ArgumentParserNoExit:
+        parser = ArgumentParserNoExit()
+        parser.description = 'Scan HID Prox tag and print facility code and card number'
+        return parser
+
+    def on_exec(self, args: argparse.Namespace):
+        result = self.cmd.hidprox_scan()
+        print(f" - HID Prox Facility Code: {CG}{result['facility_code']}{C0}")
+        print(f" - HID Prox Card Number: {CG}{result['card_number']}{C0}")
+
+
+@lf_hidprox.command('econfig')
+class LFHIDProxEconfig(SlotIndexArgsAndGoUnit, LFHIDProxArgsUnit):
+    def args_parser(self) -> ArgumentParserNoExit:
+        parser = ArgumentParserNoExit()
+        parser.description = 'Set/Get simulated HID Prox card facility code and card number'
+        self.add_slot_args(parser)
+        self.add_hidprox_args(parser)
+        return parser
+
+    def on_exec(self, args: argparse.Namespace):
+        if args.facility is not None or args.card is not None:
+            # Get current values if only one parameter is provided
+            current = self.cmd.hidprox_get_emu_id()
+            facility_code = args.facility if args.facility is not None else current['facility_code']
+            card_number = args.card if args.card is not None else current['card_number']
+            
+            self.cmd.hidprox_set_emu_id(facility_code, card_number)
+            print(f' - Set HID Prox emulation: Facility={facility_code}, Card={card_number}')
+        else:
+            response = self.cmd.hidprox_get_emu_id()
+            print(' - Get HID Prox emulation success.')
+            print(f'Facility Code: {response["facility_code"]}')
+            print(f'Card Number: {response["card_number"]}')
 
 
 @hw_slot.command('nick')
