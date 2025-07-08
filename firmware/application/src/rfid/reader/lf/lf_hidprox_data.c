@@ -139,12 +139,13 @@ uint8_t hidprox_read(hid_prox_card_data_t *card_data, uint32_t timeout_ms) {
         // 2. Demodulate and decode the HID Prox data
         // 3. Validate parity and format
         
-        // For now, simulate successful read for testing after half timeout
-        static uint32_t sim_counter = 0;
-        sim_counter++;
+        // For now, simulate successful read for testing
+        // In a real implementation, this would analyze the received signal
+        uint32_t elapsed_ms = bsp_get_systick_us() / 1000;
         
-        if (sim_counter > (timeout_ms / 20)) {  // Simulate detection after some time
-            // Simulate a detected card with test values
+        // Simulate realistic detection probability (not always successful)
+        if (elapsed_ms > 100) {  // Give some time for "signal processing"
+            // Simulate a detected card with test values for development
             card_data->facility_code = 123;  // Example facility code
             card_data->card_number = 45678;  // Example card number
             result = 1;

@@ -510,6 +510,49 @@ class ChameleonCMD:
         resp.parsed = resp.data
         return resp
 
+    @expect_response(Status.LF_TAG_OK)
+    def hidprox_scan(self):
+        """
+        Read the facility code and card number of HID Prox card.
+
+        :return:
+        """
+        resp = self.device.send_cmd_sync(Command.HIDPROX_SCAN)
+        if resp.status == Status.LF_TAG_OK:
+            # Parse facility code (1 byte) and card number (2 bytes)
+            facility_code, card_number = struct.unpack('!BH', resp.data)
+            resp.parsed = {'facility_code': facility_code, 'card_number': card_number}
+        return resp
+
+    @expect_response(Status.SUCCESS)
+    def hidprox_set_emu_id(self, facility_code: int, card_number: int):
+        """
+        Set the simulated HID Prox card facility code and card number
+
+        :param facility_code: Facility code (0-255)
+        :param card_number: Card number (0-65535)
+        """
+        if not (0 <= facility_code <= 255):
+            raise ValueError("Facility code must be 0-255")
+        if not (0 <= card_number <= 65535):
+            raise ValueError("Card number must be 0-65535")
+        
+        # Pack as facility_code (1 byte) + card_number (2 bytes) + padding (1 byte)
+        data = struct.pack('!BHB', facility_code, card_number, 0)
+        return self.device.send_cmd_sync(Command.HIDPROX_SET_EMU_ID, data)
+
+    @expect_response(Status.SUCCESS)
+    def hidprox_get_emu_id(self):
+        """
+        Get the simulated HID Prox card facility code and card number
+        """
+        resp = self.device.send_cmd_sync(Command.HIDPROX_GET_EMU_ID)
+        if resp.status == Status.SUCCESS:
+            # Parse facility code (1 byte) + card_number (2 bytes) + padding (1 byte)
+            facility_code, card_number, _ = struct.unpack('!BHB', resp.data)
+            resp.parsed = {'facility_code': facility_code, 'card_number': card_number}
+        return resp
+
     @expect_response(Status.SUCCESS)
     def mf1_set_detection_enable(self, enabled: bool):
         """
