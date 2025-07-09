@@ -19,6 +19,12 @@ extern "C"
 #define HID_PROX_BIT_PERIOD_RF_8 8  // 8 RF cycles per bit period
 #define HID_PROX_BIT_PERIOD_RF_10 10 // 10 RF cycles per bit period
 
+// Manchester encoding constants for HID Prox
+#define HID_PROX_MANCHESTER_HALF_BIT_MIN 16  // Minimum timing for half bit period
+#define HID_PROX_MANCHESTER_HALF_BIT_MAX 32  // Maximum timing for half bit period
+#define HID_PROX_MANCHESTER_FULL_BIT_MIN 32  // Minimum timing for full bit period
+#define HID_PROX_MANCHESTER_FULL_BIT_MAX 64  // Maximum timing for full bit period
+
 typedef struct {
     uint8_t facility_code;          // Facility code (8 bits)
     uint16_t card_number;           // Card number (16 bits)
@@ -27,7 +33,8 @@ typedef struct {
 
 typedef struct {
     uint8_t raw_data[HID_PROX_RAW_BUF_SIZE];  // Raw captured data
-    uint8_t timing_data[HID_PROX_RAW_BITS];   // Timing data for FSK decoding
+    uint8_t timing_data[HID_PROX_RAW_BITS];   // Timing data for Manchester decoding
+    uint8_t transition_data[HID_PROX_RAW_BITS]; // Transition state data for Manchester
     uint8_t decoded_data[HID_PROX_TOTAL_SIZE]; // Decoded HID Prox data
     uint8_t start_bit_pos;                     // Starting bit position
     uint8_t data_valid;                        // Data validity flag
