@@ -3,6 +3,7 @@
 #include "lf_reader_data.h"
 #include "lf_hidprox_data.h"
 #include "lf_125khz_radio.h"
+#include "hw_connect.h"
 
 #define NRF_LOG_MODULE_NAME hidprox
 #include "nrf_log.h"
@@ -17,47 +18,79 @@ static volatile bool hidprox_card_found = false;
 static volatile uint8_t last_transition_state = 0; // Track last GPIO state for Manchester
 
 /**
- * Decode Manchester encoded bit stream
+ * Improved Manchester decoding with better noise tolerance and timing flexibility
  * Returns number of valid bits decoded
  */
 static uint8_t decode_manchester_bits(uint32_t *bit_data) {
     uint8_t valid_bits = 0;
-    uint8_t bit_phase = 0; // 0 = expecting first half, 1 = expecting second half
+    uint8_t bit_phase = 0; // 0 = looking for start, 1 = first half, 2 = second half
     uint8_t current_bit_value = 0;
+    uint8_t sync_found = 0;
+    uint32_t accumulated_timing = 0;
     
     *bit_data = 0;
     
-    for (int i = 0; i < data_index && valid_bits < 26; i++) {
+    // First pass: Look for sync pattern (longer pulses)
+    for (int i = 0; i < data_index && !sync_found; i++) {
+        uint8_t timing_value = hidprox_raw_data.timing_data[i];
+        
+        if (timing_value >= HID_PROX_SYNC_THRESHOLD) {
+            // Found potential sync - start decoding from next transition
+            sync_found = 1;
+            bit_phase = 1;
+            i++; // Skip to next transition
+            if (i < data_index) {
+                current_bit_value = hidprox_raw_data.transition_data[i];
+                accumulated_timing = hidprox_raw_data.timing_data[i];
+            }
+            continue;
+        }
+    }
+    
+    // If no sync found, try to decode from beginning with different approach
+    if (!sync_found) {
+        bit_phase = 1;
+        if (data_index > 0) {
+            current_bit_value = hidprox_raw_data.transition_data[0];
+            accumulated_timing = hidprox_raw_data.timing_data[0];
+        }
+    }
+    
+    // Second pass: Decode Manchester bits with timing flexibility
+    for (int i = (sync_found ? 1 : 0); i < data_index && valid_bits < 26; i++) {
         uint8_t timing_value = hidprox_raw_data.timing_data[i];
         uint8_t transition_state = hidprox_raw_data.transition_data[i];
         
-        // Check if timing is within valid Manchester half-bit period
-        if (timing_value >= HID_PROX_MANCHESTER_HALF_BIT_MIN && 
-            timing_value <= HID_PROX_MANCHESTER_HALF_BIT_MAX) {
-            
-            if (bit_phase == 0) {
-                // First half of bit period
-                current_bit_value = transition_state;
-                bit_phase = 1;
-            } else {
-                // Second half of bit period - check for proper Manchester transition
-                if ((current_bit_value == 0 && transition_state == 1) || 
-                    (current_bit_value == 1 && transition_state == 0)) {
+        // Skip noise
+        if (timing_value < HID_PROX_NOISE_THRESHOLD) {
+            continue;
+        }
+        
+        accumulated_timing += timing_value;
+        
+        if (bit_phase == 1) {
+            // First half of bit period
+            current_bit_value = transition_state;
+            bit_phase = 2;
+        } else if (bit_phase == 2) {
+            // Second half of bit period - check for proper Manchester transition
+            if (accumulated_timing >= HID_PROX_MANCHESTER_HALF_BIT_MIN && 
+                accumulated_timing <= HID_PROX_MANCHESTER_FULL_BIT_MAX) {
+                
+                // Check for valid Manchester transition
+                if (current_bit_value != transition_state) {
                     // Valid Manchester bit: determine bit value based on transition
-                    uint8_t bit_val = (current_bit_value == 0) ? 1 : 0; // High-to-low = 1, Low-to-high = 0
+                    // In Manchester: high-to-low transition = 1, low-to-high = 0
+                    uint8_t bit_val = (current_bit_value == 1 && transition_state == 0) ? 1 : 0;
                     *bit_data = (*bit_data << 1) | bit_val;
                     valid_bits++;
                 }
-                bit_phase = 0;
             }
-        } else if (timing_value >= HID_PROX_MANCHESTER_FULL_BIT_MIN && 
-                   timing_value <= HID_PROX_MANCHESTER_FULL_BIT_MAX) {
-            // Full bit period - this could be a stretched bit or sync
-            // For now, treat as invalid and reset phase
-            bit_phase = 0;
-        } else {
-            // Invalid timing, reset phase
-            bit_phase = 0;
+            
+            // Reset for next bit
+            bit_phase = 1;
+            current_bit_value = transition_state;
+            accumulated_timing = timing_value;
         }
     }
     
@@ -65,7 +98,7 @@ static uint8_t decode_manchester_bits(uint32_t *bit_data) {
 }
 
 /**
- * Process HID Prox Manchester signal and decode 26-bit data
+ * Process HID Prox Manchester signal and decode 26-bit data with multiple attempts
  */
 uint8_t hidprox_acquire(void) {
     if (data_index >= HID_PROX_RAW_BITS) {
@@ -73,19 +106,50 @@ uint8_t hidprox_acquire(void) {
         uint32_t bit_data = 0;
         uint8_t valid_bits = 0;
         
-        // Decode Manchester timing data into bits
-        valid_bits = decode_manchester_bits(&bit_data);
+        // Try multiple decoding attempts with different starting points
+        for (uint8_t attempt = 0; attempt < 3 && valid_bits != 26; attempt++) {
+            // Skip some data at the beginning for each attempt
+            uint8_t skip_data = attempt * 8;
+            if (skip_data < data_index) {
+                // Temporarily adjust data_index for this attempt
+                uint8_t original_index = data_index;
+                data_index = original_index - skip_data;
+                
+                // Try to decode with different starting positions
+                for (uint8_t i = skip_data; i < skip_data + 8 && i < original_index; i++) {
+                    memmove(&hidprox_raw_data.timing_data[0], &hidprox_raw_data.timing_data[i], 
+                            (original_index - i) * sizeof(uint8_t));
+                    memmove(&hidprox_raw_data.transition_data[0], &hidprox_raw_data.transition_data[i], 
+                            (original_index - i) * sizeof(uint8_t));
+                    
+                    data_index = original_index - i;
+                    valid_bits = decode_manchester_bits(&bit_data);
+                    
+                    if (valid_bits == 26) {
+                        break;
+                    }
+                }
+                
+                data_index = original_index;
+                
+                if (valid_bits == 26) {
+                    break;
+                }
+            }
+        }
         
         // We need exactly 26 bits for HID Prox
         if (valid_bits == 26) {
             // Store the decoded data
-            hidprox_card_buffer[0] = (bit_data >> 24) & 0xFF;
-            hidprox_card_buffer[1] = (bit_data >> 16) & 0xFF;
-            hidprox_card_buffer[2] = (bit_data >> 8) & 0xFF;
-            hidprox_card_buffer[3] = (bit_data >> 0) & 0xFF;
+            hidprox_card_buffer[0] = (bit_data >> 0) & 0xFF;
+            hidprox_card_buffer[1] = (bit_data >> 8) & 0xFF;
+            hidprox_card_buffer[2] = (bit_data >> 16) & 0xFF;
+            hidprox_card_buffer[3] = (bit_data >> 24) & 0xFF;
             
             hidprox_card_found = true;
             data_index = 0;
+            
+            NRF_LOG_INFO("HID Prox Manchester decoded: %d bits, data: 0x%08X", valid_bits, bit_data);
             return 1;
         }
         
@@ -96,32 +160,51 @@ uint8_t hidprox_acquire(void) {
 }
 
 /**
- * HID Prox GPIO interrupt callback for Manchester signal processing
+ * Improved HID Prox GPIO interrupt callback with better noise filtering
  */
 void GPIO_hidprox_callback(void) {
-    static uint32_t this_time_len = 0;
-    this_time_len = get_lf_counter_value();
+    static uint32_t last_time = 0;
+    static uint8_t consecutive_noise = 0;
     
-    if (this_time_len > 20) { // Filter out noise
-        if (data_index < HID_PROX_RAW_BITS) {
-            // Store timing information for Manchester analysis
-            hidprox_raw_data.timing_data[data_index] = (uint8_t)(this_time_len & 0xFF);
-            
-            // Track transition state for Manchester decoding
-            // Toggle state on each valid transition
-            last_transition_state = !last_transition_state;
-            hidprox_raw_data.transition_data[data_index] = last_transition_state;
-            
-            data_index++;
+    uint32_t this_time_len = get_lf_counter_value();
+    
+    // Enhanced noise filtering with consecutive noise detection
+    if (this_time_len < HID_PROX_NOISE_THRESHOLD) {
+        consecutive_noise++;
+        if (consecutive_noise > 3) {
+            // Too much consecutive noise, reset
+            data_index = 0;
+            consecutive_noise = 0;
         }
         clear_lf_counter_value();
+        return;
     }
     
-    // Small delay for hardware stability
+    consecutive_noise = 0;
+    
+    // Prevent buffer overflow
+    if (data_index >= HID_PROX_RAW_BITS) {
+        clear_lf_counter_value();
+        return;
+    }
+    
+    // Store timing information for Manchester analysis
+    hidprox_raw_data.timing_data[data_index] = (uint8_t)(this_time_len & 0xFF);
+    
+    // Track actual GPIO state instead of toggling
+    // This gives more accurate transition information
+    uint8_t current_gpio_state = nrf_gpio_pin_read(LF_OA_OUT);
+    hidprox_raw_data.transition_data[data_index] = current_gpio_state;
+    
+    data_index++;
+    
+    clear_lf_counter_value();
+    
+    // Reduced delay for better responsiveness
     uint16_t counter = 0;
     do {
         __NOP();
-    } while (counter++ > 500);
+    } while (counter++ < 200);  // Reduced from 500 to 200
 }
 
 /**
