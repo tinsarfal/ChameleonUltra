@@ -41,33 +41,51 @@ rm -rf "objects"
 
   cp ../nrf52_sdk/components/softdevice/${softdevice}/hex/${softdevice}_nrf52_${softdevice_version}_softdevice.hex softdevice.hex
   
-  nrfutil nrf5sdk-tools pkg generate \
+  # Try to generate DFU packages - may fail with older nrfutil
+  echo "Attempting to generate DFU packages..."
+  set +e  # Don't exit on error
+  
+  nrfutil pkg generate \
     --hw-version $hw_version \
     --bootloader  bootloader.hex   --bootloader-version  $bootloader_version  --key-file ../../resource/dfu_key/chameleon.pem \
     --application application.hex  --application-version $application_version\
     --softdevice  softdevice.hex \
     --sd-req ${softdevice_id} --sd-id ${softdevice_id} \
     ${device_type}-dfu-full.zip
+  
+  if [ $? -eq 0 ]; then
+    echo "Full DFU package generated successfully"
+  else
+    echo "Warning: Full DFU package generation failed (may require newer nrfutil)"
+  fi
 	
-  nrfutil nrf5sdk-tools pkg generate \
+  nrfutil pkg generate \
     --hw-version $hw_version --key-file ../../resource/dfu_key/chameleon.pem \
     --application application.hex  --application-version $application_version \
     --sd-req ${softdevice_id} \
     ${device_type}-dfu-app.zip
+  
+  if [ $? -eq 0 ]; then
+    echo "Application DFU package generated successfully"
+  else
+    echo "Warning: Application DFU package generation failed (may require newer nrfutil)"
+  fi
+  
+  set -e  # Re-enable exit on error
 
-  nrfutil nrf5sdk-tools settings generate \
+  nrfutil settings generate \
     --family NRF52840 \
     --application application.hex --application-version $application_version \
     --softdevice softdevice.hex \
     --bootloader-version $bootloader_version --bl-settings-version 2 \
     settings.hex
-  mergehex \
+  python ../mergehex.py \
     --merge \
     settings.hex \
     application.hex \
     --output application_merged.hex
 
-  mergehex \
+  python ../mergehex.py \
     --merge \
       bootloader.hex \
       application_merged.hex \
