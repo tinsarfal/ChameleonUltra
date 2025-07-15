@@ -19,11 +19,13 @@ extern "C"
 #define HID_PROX_BIT_PERIOD_RF_8 8  // 8 RF cycles per bit period
 #define HID_PROX_BIT_PERIOD_RF_10 10 // 10 RF cycles per bit period
 
-// Manchester encoding constants for HID Prox
-#define HID_PROX_MANCHESTER_HALF_BIT_MIN 16  // Minimum timing for half bit period
-#define HID_PROX_MANCHESTER_HALF_BIT_MAX 32  // Maximum timing for half bit period
-#define HID_PROX_MANCHESTER_FULL_BIT_MIN 32  // Minimum timing for full bit period
-#define HID_PROX_MANCHESTER_FULL_BIT_MAX 64  // Maximum timing for full bit period
+// Manchester encoding constants for HID Prox - More tolerant timing
+#define HID_PROX_MANCHESTER_HALF_BIT_MIN 12  // Minimum timing for half bit period (more tolerant)
+#define HID_PROX_MANCHESTER_HALF_BIT_MAX 40  // Maximum timing for half bit period (more tolerant)
+#define HID_PROX_MANCHESTER_FULL_BIT_MIN 24  // Minimum timing for full bit period
+#define HID_PROX_MANCHESTER_FULL_BIT_MAX 80  // Maximum timing for full bit period
+#define HID_PROX_SYNC_THRESHOLD 80           // Threshold for sync detection
+#define HID_PROX_NOISE_THRESHOLD 8           // Minimum timing to consider valid (noise filter)
 
 typedef struct {
     uint8_t facility_code;          // Facility code (8 bits)

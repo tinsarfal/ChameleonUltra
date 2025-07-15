@@ -11,10 +11,21 @@
 extern "C" {
 #endif
 
+// HID Prox emulation timing constants
+#define HID_PROX_BIT_PERIOD_US 64              // Bit period in microseconds for HID Prox
+#define HID_PROX_MANCHESTER_HALF_PERIOD_US 32  // Half bit period for Manchester encoding
+#define HID_PROX_TRANSMISSION_INTERVAL_MS 100  // Interval between transmissions
+#define HID_PROX_PREAMBLE_BITS 5               // Number of preamble bits
+#define HID_PROX_TOTAL_BITS 31                 // Total bits including preamble
+
 // HID Prox specific tag data
 typedef struct {
     hid_prox_card_data_t card_data;
     uint8_t emulation_enabled;
+    uint8_t transmission_buffer[HID_PROX_TOTAL_BITS];  // Buffer for Manchester encoded transmission
+    uint8_t transmission_bit_position;                  // Current bit position in transmission
+    uint8_t transmission_phase;                         // Manchester phase (0 = first half, 1 = second half)
+    uint8_t transmission_active;                        // Whether transmission is currently active
 } lf_tag_hidprox_info_t;
 
 // Function prototypes
