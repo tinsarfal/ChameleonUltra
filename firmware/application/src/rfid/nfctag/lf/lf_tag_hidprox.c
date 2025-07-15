@@ -23,7 +23,7 @@ NRF_LOG_MODULE_REGISTER();
 static lf_tag_hidprox_info_t m_tag_info = {0};
 
 // Timer for HID Prox transmission timing
-static const nrfx_timer_t m_timer_hidprox = NRFX_TIMER_INSTANCE(1);
+static const nrfx_timer_t m_timer_hidprox = NRFX_TIMER_INSTANCE(3);
 
 // Field detection state
 static volatile bool m_is_lf_emulating = false;
@@ -114,7 +114,7 @@ void lf_tag_hidprox_simulation_init(void) {
     
     // Initialize timer for bit transmission
     nrfx_timer_config_t timer_cfg = NRFX_TIMER_DEFAULT_CONFIG;
-    timer_cfg.frequency = NRFX_TIMER_BASE_FREQUENCY_16MHz;
+    timer_cfg.frequency = NRF_TIMER_FREQ_16MHz;
     timer_cfg.mode = NRF_TIMER_MODE_TIMER;
     timer_cfg.bit_width = NRF_TIMER_BIT_WIDTH_32;
     

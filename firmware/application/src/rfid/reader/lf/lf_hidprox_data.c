@@ -4,6 +4,7 @@
 #include "lf_hidprox_data.h"
 #include "lf_125khz_radio.h"
 #include "hw_connect.h"
+#include "nrf_gpio.h"
 
 #define NRF_LOG_MODULE_NAME hidprox
 #include "nrf_log.h"
@@ -163,7 +164,6 @@ uint8_t hidprox_acquire(void) {
  * Improved HID Prox GPIO interrupt callback with better noise filtering
  */
 void GPIO_hidprox_callback(void) {
-    static uint32_t last_time = 0;
     static uint8_t consecutive_noise = 0;
     
     uint32_t this_time_len = get_lf_counter_value();
